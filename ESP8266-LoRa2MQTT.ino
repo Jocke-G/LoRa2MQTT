@@ -1,7 +1,7 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoOTA.h>
-
+#include <ArduinoJson.h>
 #include <SPI.h>
 #include <LoRa.h>
 
@@ -16,18 +16,30 @@ WiFiClient wclient;
 PubSubClient client(MQTT_HOST, MQTT_PORT, mqttDataCallback, wclient);
 
 void mqttDataCallback(char* topic, byte* payload, unsigned int length) {
+  payload[length] = '\0';
+  String strPayload = String((char*)payload);
   if(DEBUG_PRINT_SERIAL) {
     Serial.println("MQTT Message Received!");
     Serial.print("\tTopic: \t");
     Serial.println(topic);
     Serial.print("\tMessage: \t");
     
-    payload[length] = '\0';
-    String s = String((char*)payload);
-    Serial.println(s);
+    Serial.println(strPayload);
   }
 
   String strTopic = String(topic);
+
+  if (strTopic.equals(MQTT_RECEIVE_TOPIC)) {
+    if(DEBUG_PRINT_SERIAL) {
+      Serial.println("Sending LoRa:");
+      Serial.println(strPayload);
+    }
+
+    LoRa.beginPacket();
+    LoRa.print(strPayload);
+    LoRa.endPacket();
+  }
+
   if (strTopic.equals(MQTT_STATUS_REQUEST_TOPIC)) {
       String response = String("IP:");
       response += WiFi.localIP().toString();
@@ -55,13 +67,20 @@ void mqttConnectedCallback() {
   client.subscribe(MQTT_STATUS_REQUEST_TOPIC);
 
   if(DEBUG_PRINT_SERIAL) {
+    Serial.println("Subscribing to message out topic");
+    Serial.print("\tTopic:\t");
+    Serial.println(MQTT_RECEIVE_TOPIC);
+  }
+  client.subscribe(MQTT_RECEIVE_TOPIC);
+
+  if(DEBUG_PRINT_SERIAL) {
     Serial.println("Publishing Connected message");
     Serial.print("\tTopic:\t");
     Serial.println(MQTT_CONNECTED_TOPIC);
     Serial.print("\tMessage:\t");
     Serial.println(MQTT_CONNECTED_MESSAGE);
   }
-  client.publish(MQTT_CONNECTED_TOPIC, MQTT_CONNECTED_MESSAGE);
+  client.publish(MQTT_CONNECTED_TOPIC, MQTT_CONNECTED_MESSAGE, true);
 }
 
 void mqttDisconnectedCallback() {
@@ -112,6 +131,24 @@ void setupWifi() {
     Serial.print("\tIP address:\t");
     Serial.println(WiFi.localIP());
   }
+
+  ArduinoOTA.onStart([]() {
+    Serial.println("OTA Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nOTA End");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("OTA Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
 }
 
 void setupLoRa() {
@@ -154,7 +191,7 @@ void processNet() {
         Serial.println(MQTT_LAST_WILL_MESSAGE);
       }
       
-      if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD, MQTT_LAST_WILL_TOPIC, 1, 0, MQTT_LAST_WILL_MESSAGE)) {
+      if (client.connect(MQTT_CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD, MQTT_LAST_WILL_TOPIC, 1, true, MQTT_LAST_WILL_MESSAGE)) {
           pendingDisconnect = false;
           mqttConnectedCallback();
       }
@@ -198,4 +235,14 @@ void onReceive(int packetSize) {
   }
 
   client.publish(MQTT_SEND_TOPIC, payload.c_str());
+
+  if(MQTT_DEBUG_ENABLED) {
+    StaticJsonDocument<64> doc;
+    doc["payload"] = payload.c_str();
+    doc["RSSI"] = LoRa.packetRssi();
+    doc["SNR"] = LoRa.packetSnr();
+    String debugMessage = "";
+    serializeJson(doc, debugMessage);
+    client.publish(MQTT_DEBUG_TOPIC, debugMessage.c_str());
+  }
 }

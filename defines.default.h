@@ -16,6 +16,9 @@
 #define MQTT_STATUS_REQUEST_TOPIC "LoRa2MQTT/TechnicalStatusRequest"
 #define MQTT_STATUS_RESPONSE_TOPIC "LoRa2MQTT/TechnicalStatus"
 #define MQTT_SEND_TOPIC "LoRa2MQTT/Message"
+#define MQTT_RECEIVE_TOPIC "LoRa2MQTT/Out"
+#define MQTT_DEBUG_ENABLED true
+#define MQTT_DEBUG_TOPIC "LoRa2MQTT/Debug"
 
 // LoRa
 #define SS_PIN D8 // Slave Select pin
